@@ -1,25 +1,25 @@
-import {MyDatabase} from "./database/database";
-import {Address, TonClient} from "@ton/ton";
-import {configDotenv} from "dotenv";
-import {mnemonicToWalletKey} from "@ton/crypto";
-import {isDefined, loadAddress, loadString, makeTaskDescription, retry, sleep} from "./util";
-import {checkSwapResult, highloadExchange} from "./swapper/swapper";
-import {HighloadExchangeResult, SwapParams} from "./swapper/types";
-import {TransactionStatus} from "./swapper/helpers";
-import {clearInterval} from "node:timers";
-import {HighloadWalletV2} from "./highload/highload_contract";
-import {SwapTask} from "./database/types";
-import {ServiceBot} from "./bot/service_bot";
+import { mnemonicToWalletKey } from '@ton/crypto'
+import { Address, TonClient } from '@ton/ton'
+import { configDotenv } from 'dotenv'
+import { clearInterval } from 'node:timers'
+import { ServiceBot } from './bot/service_bot'
+import { MyDatabase } from './database/database'
+import { SwapTask } from './database/types'
+import { HighloadWalletV2 } from './highload/highload_contract'
+import { TransactionStatus } from './swapper/helpers'
+import { checkSwapResult, highloadExchange } from './swapper/swapper'
+import { HighloadExchangeResult, SwapParams } from './swapper/types'
+import { isDefined, loadAddress, loadString, makeTaskDescription, retry, sleep } from './util'
 
-import {ASSETS_COLLECTION_MAINNET} from "./assets";
-import {getSwapLimits, SUPPORTED_ASSETS} from "./config";
-import {AssetsCollection} from "./assets_collection";
+import { ASSETS_COLLECTION_MAINNET } from './assets'
+import { AssetsCollection } from './assets_collection'
+import { getSwapLimits, REFERRAL_NAME, SUPPORTED_ASSETS } from './config'
 
 /**
  * Entry point of the swapper service
  */
 
-configDotenv();
+configDotenv()
 
 const config = {
     rpc: {
@@ -52,36 +52,36 @@ const config = {
         serviceInterval: 300_000, // 5 minutes
     },
     prefix: {
-        service: "ASSET SWAPPER SERVICE: ",
-        tracker: "TRACKER: ",
-        swapper: "SWAPPER: ",
-        maintenance: "MAINTENANCE: ",
+        service: 'ASSET SWAPPER SERVICE: ',
+        tracker: 'TRACKER: ',
+        swapper: 'SWAPPER: ',
+        maintenance: 'MAINTENANCE: ',
     },
     referral: {
-        token: 'evaa',
-    }
+        token: REFERRAL_NAME,
+    },
 }
 
 const isAssetSupported = (assetId: bigint) => {
-    const asset = ASSETS_COLLECTION_MAINNET.byAssetId(assetId);
-    if (!isDefined(asset)) return false;
-    return SUPPORTED_ASSETS.findIndex(assetSymbol => assetSymbol === asset?.symbol) >= 0; // found
+    const asset = ASSETS_COLLECTION_MAINNET.byAssetId(assetId)
+    if (!isDefined(asset)) return false
+    return SUPPORTED_ASSETS.findIndex((assetSymbol) => assetSymbol === asset?.symbol) >= 0 // found
 }
 
 async function doSingleSwap(task: SwapTask, wallet: HighloadWalletV2, db: MyDatabase, bot: ServiceBot, assetsCollection: AssetsCollection) {
     for (const assetId of [task.tokenOffer, task.tokenAsk]) {
         if (!isAssetSupported(assetId)) {
-            const message = `Jetton ID ${assetId} is not supported`;
-            console.warn(message);
-            await db.cancelTask(task.id);
-            await bot.sendMessage(message);
-            return;
+            const message = `Jetton ID ${assetId} is not supported`
+            console.warn(message)
+            await db.cancelTask(task.id)
+            await bot.sendMessage(message)
+            return
         }
     }
 
-    const limits = getSwapLimits(task.tokenOffer, task.tokenAsk);
-    const assetOffer = ASSETS_COLLECTION_MAINNET.byAssetId(task.tokenOffer);
-    const assetAsk = ASSETS_COLLECTION_MAINNET.byAssetId(task.tokenAsk);
+    const limits = getSwapLimits(task.tokenOffer, task.tokenAsk)
+    const assetOffer = ASSETS_COLLECTION_MAINNET.byAssetId(task.tokenOffer)
+    const assetAsk = ASSETS_COLLECTION_MAINNET.byAssetId(task.tokenAsk)
 
     const swapParams: SwapParams = {
         tokenOffer: assetOffer.address.toString(),
@@ -92,153 +92,152 @@ async function doSingleSwap(task: SwapTask, wallet: HighloadWalletV2, db: MyData
         referralName: config.referral.token,
     }
 
-    const swapDescription = makeTaskDescription(task, assetsCollection);
-    await bot.sendMessage(`Pending swap received: ${swapDescription}`);
-    console.log(`${config.prefix.swapper} Pending swap received: ${swapDescription}`);
+    const swapDescription = makeTaskDescription(task, assetsCollection)
+    await bot.sendMessage(`Pending swap received: ${swapDescription}`)
+    console.log(`${config.prefix.swapper} Pending swap received: ${swapDescription}`)
 
-    let res = await retry<HighloadExchangeResult>(
-        async () => await highloadExchange(wallet, swapParams),
-        {attempts: 3, attemptInterval: 1000}
-    );
+    let res = await retry<HighloadExchangeResult>(async () => await highloadExchange(wallet, swapParams), { attempts: 3, attemptInterval: 1000 })
 
     if (!res.ok) {
-        const message = `${config.prefix.swapper} Failed to send swap messages for: ${swapDescription}`;
-        console.warn(message);
-        await bot.sendMessage(message);
-        await db.failTask(task.id, TransactionStatus.Failed);
-        return;
+        const message = `${config.prefix.swapper} Failed to send swap messages for: ${swapDescription}`
+        console.warn(message)
+        await bot.sendMessage(message)
+        await db.failTask(task.id, TransactionStatus.Failed)
+        return
     }
 
-    await db.takeSwapTask(task.id, res.value.query_id, res.value.route_id);
+    await db.takeSwapTask(task.id, res.value.query_id, res.value.route_id)
 }
 
 async function serveSwaps(wallet: HighloadWalletV2, db: MyDatabase, bot: any, assetsCollection: AssetsCollection) {
-    const tasks = await db.getPendingSwaps(config.swapper.maxSwapsPerTact);
+    const tasks = await db.getPendingSwaps(config.swapper.maxSwapsPerTact)
     if (tasks.length === 0) {
         //console.log(config.prefix.swapper, 'No swap tasks, waiting...');
-        return;
+        return
     }
 
     for (const task of tasks) {
         try {
-            await doSingleSwap(task, wallet, db, bot, assetsCollection);
+            await doSingleSwap(task, wallet, db, bot, assetsCollection)
         } catch (e) {
-            const taskDescription = makeTaskDescription(task, assetsCollection);
-            const message = `${config.prefix.swapper} Single swap failed: ${taskDescription}`;
-            console.warn(message, e);
-            bot.sendMessage(message);
+            const taskDescription = makeTaskDescription(task, assetsCollection)
+            const message = `${config.prefix.swapper} Single swap failed: ${taskDescription}`
+            console.warn(message, e)
+            bot.sendMessage(message)
         }
 
-        await sleep(config.swapper.swapWaitInterval);
+        await sleep(config.swapper.swapWaitInterval)
     }
 }
 
 async function serveTracker(db: MyDatabase, bot: any, assetsCollection: AssetsCollection) {
-    const swaps = await db.getSentSwaps(config.tracker.maxTracksPerTact);
+    const swaps = await db.getSentSwaps(config.tracker.maxTracksPerTact)
     if (swaps.length === 0) {
         //console.log(`${config.prefix.tracker} Nothing to track, waiting...`);
-        return;
+        return
     }
 
-    const results = await Promise.all(swaps.map(swap => checkSwapResult(swap.routeID)));
+    const results = await Promise.all(swaps.map((swap) => checkSwapResult(swap.routeID)))
 
     for (const [index, res] of results.entries()) {
-        const task = swaps[index];
-        const swapDescription = makeTaskDescription(task, assetsCollection);
+        const task = swaps[index]
+        const swapDescription = makeTaskDescription(task, assetsCollection)
 
         if ((res & TransactionStatus.InProcess) !== 0) {
-            console.log(`${config.prefix.tracker} Swap ${swapDescription}  is still in progress, waiting more...`);
-            continue; // for readability
+            console.log(`${config.prefix.tracker} Swap ${swapDescription}  is still in progress, waiting more...`)
+            continue // for readability
         }
 
-        if (res === TransactionStatus.Succeeded) { // swap finished, full success
-            const message =`${config.prefix.tracker} Swap task ${swapDescription} has succeeded!`;
-            console.log(message);
-            bot.sendMessage(message);
-            await db.succeedTask(task.id, TransactionStatus.Succeeded);
-            continue;
+        if (res === TransactionStatus.Succeeded) {
+            // swap finished, full success
+            const message = `${config.prefix.tracker} Swap task ${swapDescription} has succeeded!`
+            console.log(message)
+            bot.sendMessage(message)
+            await db.succeedTask(task.id, TransactionStatus.Succeeded)
+            continue
         }
 
-        if ((res & TransactionStatus.PartiallyComplete) !== 0) { // partial success, some failed or timed out
-            const message = `${config.prefix.tracker} Swap task ${swapDescription} has partially succeeded!`;
-            console.log(message);
-            bot.sendMessage(message);
-            await db.succeedTask(task.id, res); // discussible, what status it should become
-            continue;
+        if ((res & TransactionStatus.PartiallyComplete) !== 0) {
+            // partial success, some failed or timed out
+            const message = `${config.prefix.tracker} Swap task ${swapDescription} has partially succeeded!`
+            console.log(message)
+            bot.sendMessage(message)
+            await db.succeedTask(task.id, res) // discussible, what status it should become
+            continue
         }
 
-        if ((res & TransactionStatus.TimedOut) !== 0) { // timeout or partially fail
-            const message = `${config.prefix.tracker} Swap task ${swapDescription} has timed out!`;
-            console.log(message);
-            bot.sendMessage(message);
-            await db.timeoutTask(task.id, res);
-            continue;
+        if ((res & TransactionStatus.TimedOut) !== 0) {
+            // timeout or partially fail
+            const message = `${config.prefix.tracker} Swap task ${swapDescription} has timed out!`
+            console.log(message)
+            bot.sendMessage(message)
+            await db.timeoutTask(task.id, res)
+            continue
         }
 
         if ((res & (TransactionStatus.Failed | TransactionStatus.Unknown)) !== 0) {
-            const message =`${config.prefix.tracker} Swap task ${swapDescription} has failed!`;
-            console.log(message);
-            bot.sendMessage(message);
-            await db.failTask(task.id, res);
+            const message = `${config.prefix.tracker} Swap task ${swapDescription} has failed!`
+            console.log(message)
+            bot.sendMessage(message)
+            await db.failTask(task.id, res)
         }
     }
 }
 
 async function main(bot: any, assetsCollection: AssetsCollection) {
-    const db = new MyDatabase(config.db.path);
-    await db.init();
+    const db = new MyDatabase(config.db.path)
+    await db.init()
 
     const tonClient = new TonClient({
         endpoint: config.rpc.endpoint,
-        apiKey: config.rpc.token
-    });
+        apiKey: config.rpc.token,
+    })
 
-    const highloadAddress = Address.parse(config.wallet.address);
-    const keys = await mnemonicToWalletKey(config.wallet.mnemonic.split(' '));
+    const highloadAddress = Address.parse(config.wallet.address)
+    const keys = await mnemonicToWalletKey(config.wallet.mnemonic.split(' '))
 
-    const wallet = new HighloadWalletV2(tonClient, highloadAddress, keys);
-    await sleep(1000);
+    const wallet = new HighloadWalletV2(tonClient, highloadAddress, keys)
+    await sleep(1000)
 
-    console.log("Starting monitoring service...");
-    let trackingInProgress = false;
+    console.log('Starting monitoring service...')
+    let trackingInProgress = false
 
     const trackingIntervalID = setInterval(async () => {
         if (trackingInProgress) {
-            console.log(config.prefix.tracker, 'Previous run is still in progress, waiting...');
-            return;
+            console.log(config.prefix.tracker, 'Previous run is still in progress, waiting...')
+            return
         }
-        trackingInProgress = true;
+        trackingInProgress = true
         try {
-            await serveTracker(db, bot, assetsCollection);
+            await serveTracker(db, bot, assetsCollection)
         } catch (e) {
-            const message = `${config.prefix.tracker}: Service has failed`;
-            console.warn(message, e);
-            bot.sendMessage(message);
+            const message = `${config.prefix.tracker}: Service has failed`
+            console.warn(message, e)
+            bot.sendMessage(message)
         }
-        trackingInProgress = false;
-    }, config.tracker.serviceInterval);
+        trackingInProgress = false
+    }, config.tracker.serviceInterval)
 
-    console.log('Starting swap service...');
-    let swapInProgress = false;
+    console.log('Starting swap service...')
+    let swapInProgress = false
 
     const swapServiceIntervalID = setInterval(async () => {
         //console.log(config.prefix.swapper, 'Start processing swap tasks...');
         if (swapInProgress) {
-            console.log(config.prefix.swapper, 'Previous run is not finished, wait more...');
-            return;
+            console.log(config.prefix.swapper, 'Previous run is not finished, wait more...')
+            return
         }
 
-        swapInProgress = true;
+        swapInProgress = true
         try {
-            await serveSwaps(wallet, db, bot, assetsCollection);
+            await serveSwaps(wallet, db, bot, assetsCollection)
         } catch (e) {
-            const message = `${config.prefix.swapper} Service has failed: `;
-            console.warn(message, e);
-            bot.sendMessage(message);
+            const message = `${config.prefix.swapper} Service has failed: `
+            console.warn(message, e)
+            bot.sendMessage(message)
         }
-        swapInProgress = false;
-
-    }, config.swapper.serviceInterval);
+        swapInProgress = false
+    }, config.swapper.serviceInterval)
 
     // // disable for now
     // console.log('Starting maintenance service...');
@@ -260,34 +259,33 @@ async function main(bot: any, assetsCollection: AssetsCollection) {
 
     // handle interruption Ctrl+C === SIGINT
     process.on('SIGINT', async () => {
-        const message = `Received SIGINT, stopping services...`;
-        console.log(message);
-        await bot.sendMessage(message);
-        clearInterval(swapServiceIntervalID);
-        clearInterval(trackingIntervalID);
+        const message = `Received SIGINT, stopping services...`
+        console.log(message)
+        await bot.sendMessage(message)
+        clearInterval(swapServiceIntervalID)
+        clearInterval(trackingIntervalID)
         // clearInterval(maintenanceIntervalID);
-        console.log('Waiting 20s before force exit...');
+        console.log('Waiting 20s before force exit...')
 
         setTimeout(() => {
-            throw ('Forced exit...');
-        }, 20_000); // wait 10 seconds for `threads` to finish, then enforce exit
-    });
+            throw 'Forced exit...'
+        }, 20_000) // wait 10 seconds for `threads` to finish, then enforce exit
+    })
 
-    await bot.sendMessage('Services started');
+    await bot.sendMessage('Services started')
 }
 
-(async () => {
+;(async () => {
     // const bot = (config.isTestMode) ? new FakeBot() : new Bot(config.telegramBotToken);
-    const bot = new ServiceBot(config.bot.token, config.bot.chatId);
-    await bot.sendMessage('Asset swapper service is starting...');
-    const assetsCollection = ASSETS_COLLECTION_MAINNET;
-    main(bot, assetsCollection)
-        .catch(async e => {
-            console.log(e);
-            if (JSON.stringify(e).length == 2) {
-                await bot.sendMessage(`Fatal error: ${e}`);
-                return;
-            }
-            await bot.sendMessage(`Fatal error: ${JSON.stringify(e).slice(0, 300)} `);
-        });
+    const bot = new ServiceBot(config.bot.token, config.bot.chatId)
+    await bot.sendMessage('Asset swapper service is starting...')
+    const assetsCollection = ASSETS_COLLECTION_MAINNET
+    main(bot, assetsCollection).catch(async (e) => {
+        console.log(e)
+        if (JSON.stringify(e).length == 2) {
+            await bot.sendMessage(`Fatal error: ${e}`)
+            return
+        }
+        await bot.sendMessage(`Fatal error: ${JSON.stringify(e).slice(0, 300)} `)
+    })
 })()

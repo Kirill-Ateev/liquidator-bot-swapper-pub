@@ -34,6 +34,8 @@ import { loadAddress, loadString, makeQueryId } from '../../util'
     // Адрес контракта USDT (замените на реальный адрес контракта)
     const usdtContractAddress = Address.parse(loadAddress('MY_WALLET_USDT_ADDRESS'))
 
+    // TODO: подумать над оптимизацией комиссий
+
     // Создаем payload для вызова смарт-контракта
     const transferPayload = beginCell()
         .storeUint(0xf8a7ea5, 32) // jetton transfer op code

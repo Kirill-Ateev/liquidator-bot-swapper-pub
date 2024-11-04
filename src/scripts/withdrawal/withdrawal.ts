@@ -13,7 +13,7 @@ import { loadAddress, loadString, makeQueryId } from '../../util'
         rpcEndpointToken: loadString('TON_RPC_TOKEN'),
         recipientAddress: Address.parse(loadAddress('MY_WALLET_ADDRESS')), // Адрес получателя
         highloadWalletAddress: Address.parse(loadString('HIGHLOAD_WALLET_ADDRESS')),
-        amount: '0.102', // Укажите количество USDT для вывода 0.001 === 1 USDT
+        amount: '0.572', // Укажите количество USDT для вывода 0.001 === 1 USDT
     }
 
     const tonClient = new TonClient({
@@ -44,7 +44,7 @@ import { loadAddress, loadString, makeQueryId } from '../../util'
         .storeAddress(config.recipientAddress) // destination:MsgAddress
         .storeAddress(usdtContractAddress) // response_destination:MsgAddress
         .storeUint(0, 1) // custom_payload:(Maybe ^Cell)
-        .storeCoins(toNano('0.0001')) // forward_ton_amount:(VarUInteger 16), комиссия для уведомления
+        .storeCoins(toNano('0.04')) // forward_ton_amount:(VarUInteger 16), комиссия для уведомления
         .storeUint(0, 1) // forward_payload:(Either Cell ^Cell)
         .endCell()
 

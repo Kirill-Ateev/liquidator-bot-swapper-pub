@@ -13,7 +13,7 @@ import { loadAddress, loadString, makeQueryId } from '../../util'
         rpcEndpointToken: loadString('TON_RPC_TOKEN'),
         recipientAddress: Address.parse(loadAddress('MY_WALLET_ADDRESS')), // Адрес получателя
         highloadWalletAddress: Address.parse(loadString('HIGHLOAD_WALLET_ADDRESS')),
-        amount: '0.572', // Укажите количество USDT для вывода 0.001 === 1 USDT
+        amount: '0.30238', // Укажите количество USDT для вывода 0.001 === 1 USDT
     }
 
     const tonClient = new TonClient({
@@ -44,22 +44,34 @@ import { loadAddress, loadString, makeQueryId } from '../../util'
         .storeAddress(config.recipientAddress) // destination:MsgAddress
         .storeAddress(usdtContractAddress) // response_destination:MsgAddress
         .storeUint(0, 1) // custom_payload:(Maybe ^Cell)
-        .storeCoins(toNano('0.04')) // forward_ton_amount:(VarUInteger 16), комиссия для уведомления
+        .storeCoins(toNano('0.09')) // forward_ton_amount:(VarUInteger 16), комиссия для уведомления (в TON, будут оптравлены на адрес recipientAddress)
         .storeUint(0, 1) // forward_payload:(Either Cell ^Cell)
         .endCell()
 
-    // Send transfer
+    // Send transfer for jettons
     await contract.sendTransfer({
         secretKey: keypair.secretKey,
         messages: [
             internal({
                 to: usdtContractAddress,
-                value: toNano('0.05'),
+                value: toNano('0.1'),
                 body: transferPayload,
                 bounce: true,
             }),
         ],
     })
+
+    // Transfer only TON
+    // await contract.sendTransfer({
+    //     secretKey: keypair.secretKey,
+    //     messages: [
+    //         internal({
+    //             to: config.recipientAddress,
+    //             value: toNano('9.94'),
+    //             bounce: true,
+    //         }),
+    //     ],
+    // })
 
     console.log('Transfer initiated...')
 })()
